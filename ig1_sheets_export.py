@@ -1,53 +1,53 @@
 """
 IG-1 Google Sheets Integration
 Append crawl results to a single Google Sheet, one tab per city per run.
+Uses existing OAuth token from Google Drive connection.
 """
 
 import gspread
-from google.oauth2.service_account import Credentials
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from datetime import datetime
 import json
 from pathlib import Path
 
 class IG1SheetsExporter:
-    def __init__(self, credentials_path='~/.hermes/google_service_account.json', spreadsheet_name='IG-1 Protocol Results'):
+    def __init__(self, spreadsheet_id, token_path='~/.hermes/google_token.json'):
         """
-        Initialize Google Sheets connection.
+        Initialize Google Sheets connection using OAuth token.
         
         Args:
-            credentials_path: Path to Google service account JSON
-            spreadsheet_name: Name of the target Google Sheet
+            spreadsheet_id: The Google Sheet ID (from URL)
+            token_path: Path to stored OAuth token
         """
-        self.creds_path = Path(credentials_path).expanduser()
-        self.sheet_name = spreadsheet_name
+        self.spreadsheet_id = spreadsheet_id
+        self.token_path = Path(token_path).expanduser()
         self.client = None
         self.spreadsheet = None
         self._authenticate()
     
     def _authenticate(self):
-        """Authenticate with Google Sheets API using service account."""
+        """Authenticate with Google Sheets API using stored OAuth token."""
         try:
-            scope = [
-                'https://www.googleapis.com/auth/spreadsheets',
-                'https://www.googleapis.com/auth/drive'
-            ]
-            credentials = Credentials.from_service_account_file(self.creds_path, scopes=scope)
-            self.client = gspread.authorize(credentials)
-            print(f'✓ Google Sheets authenticated')
+            creds = Credentials.from_authorized_user_file(self.token_path)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            
+            self.client = gspread.authorize(creds)
+            print(f'✓ Google Sheets authenticated (OAuth)')
         except Exception as e:
             print(f'✗ Google Sheets auth failed: {e}')
             raise
     
-    def get_or_create_sheet(self):
-        """Get existing spreadsheet or create new one."""
+    def get_spreadsheet(self):
+        """Open the spreadsheet by ID."""
         try:
-            self.spreadsheet = self.client.open(self.sheet_name)
-            print(f'✓ Opened existing sheet: {self.sheet_name}')
-        except gspread.exceptions.SpreadsheetNotFound:
-            self.spreadsheet = self.client.create(self.sheet_name)
-            self.spreadsheet.share('', perm_type='anyone', role='reader')
-            print(f'✓ Created new sheet: {self.sheet_name}')
-        return self.spreadsheet
+            self.spreadsheet = self.client.open_by_key(self.spreadsheet_id)
+            print(f'✓ Opened sheet: {self.spreadsheet.title}')
+            return self.spreadsheet
+        except Exception as e:
+            print(f'✗ Failed to open sheet: {e}')
+            raise
     
     def export_crawl(self, city, results, timestamp=None):
         """
@@ -55,7 +55,7 @@ class IG1SheetsExporter:
         
         Args:
             city: City name (becomes tab name)
-            results: List of account dicts with keys: username, full_name, follower_count, female_score, business_flag, bio_preview
+            results: List of account dicts with keys: username, full_name, follower_count, female_score, is_business, bio_preview
             timestamp: Optional timestamp for tab naming (defaults to now)
         """
         if not timestamp:
@@ -85,7 +85,7 @@ class IG1SheetsExporter:
                     timestamp
                 ])
             
-            worksheet.append_rows(rows, value_input_option='USER_ENTERED')
+            worksheet.append_rows(rows)
             
             # Format header row (bold)
             worksheet.format('A1:G1', {'textFormat': {'bold': True}})
@@ -100,12 +100,17 @@ class IG1SheetsExporter:
             print(f'✗ Export failed: {e}')
             raise
 
-def append_to_sheets(city, results):
+def append_to_sheets(spreadsheet_id, city, results):
     """
     Convenience function for crawler integration.
     Call this after each city crawl completes.
+    
+    Args:
+        spreadsheet_id: Google Sheet ID
+        city: City name
+        results: List of account dicts
     """
-    exporter = IG1SheetsExporter()
-    exporter.get_or_create_sheet()
+    exporter = IG1SheetsExporter(spreadsheet_id)
+    exporter.get_spreadsheet()
     tab_name = exporter.export_crawl(city, results)
     return tab_name

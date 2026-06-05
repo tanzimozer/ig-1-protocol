@@ -12,6 +12,7 @@ from ig1_female_filter import passes_female_filter
 from ig1_sheets_export import append_to_sheets
 
 CITY = sys.argv[1]
+SHEET_ID = '1Wo0kl-vcalbflt3sUgjwVNaP3ZbtRfaNmH0NqA0j5mw'  # Your IG-1 Protocol Results sheet
 BASE = Path.home() / '.hermes' / 'ig1'
 RESULTS_DIR = BASE / 'results'
 FEEDBACK_FILE = BASE / 'feedback.json'
@@ -348,7 +349,7 @@ try:
         }
         for r in results
     ]
-    tab_name = append_to_sheets(CITY, sheet_results)
+    tab_name = append_to_sheets(SHEET_ID, CITY, sheet_results)
     log(f'✓ Exported to Google Sheets: {tab_name}')
 except Exception as e:
     log(f'⚠ Google Sheets export failed: {e} (results still saved locally)')
