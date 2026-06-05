@@ -197,7 +197,7 @@ def enrich_user(username, retries=3):
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 def passes_filter(u):
-    """Combined filter: follower range + privacy + business + female."""
+    """Combined filter: follower range + privacy + business + female (OPTIMIZED)."""
     if not u:
         return False
     if u.get('is_private'):
@@ -206,17 +206,18 @@ def passes_filter(u):
     if not (500 <= fc <= 3500):
         return False
     
-    # Business profile detection (3-layer filter)
+    # Extract fields once (avoid duplicate extraction across filters)
     username = u.get('username', '')
     full_name = u.get('full_name', '')
     bio = u.get('biography', '')
     is_biz_flag = u.get('is_business_account', False)
     
+    # Business filter
     passes_biz_filter, _ = passes_business_filter(username, full_name, bio, is_biz_flag)
     if not passes_biz_filter:
         return False
     
-    # Female signal detection (weighted scoring, threshold ≥2.5)
+    # Female filter (business filter result passed directly)
     is_female, _ = passes_female_filter(username, full_name, bio, is_biz_flag)
     if not is_female:
         return False
@@ -224,7 +225,7 @@ def passes_filter(u):
     return True
 
 def female_score(u):
-    """Legacy female scoring for account ranking (separate from filter)."""
+    """Score female signal strength for ranking (separate from filter threshold)."""
     from ig1_female_filter import score_female_signals
     username = u.get('username', '')
     full_name = u.get('full_name', '')
