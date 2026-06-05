@@ -152,19 +152,20 @@ class QAValidator:
             from ig1_female_filter import is_female_account
             
             test_cases = [
-                ('Sofia Fernandez', 'Yoga instructor, coffee lover', True, 'high'),
-                ('John Smith', 'Tech bro, startup guy', False, 'low'),
-                ('Emma Wilson', 'She/her, fitness coach', True, 'high'),
+                # (username, full_name, bio, expected_result, description)
+                ('sophia_yoga', 'Sophia Williams', 'She/her - yoga instructor, fitness coach', True, 'strong female signals'),
+                ('john_startup', 'John Smith', 'Tech entrepreneur, crypto bro', False, 'no female signals'),
+                ('emma_fit', 'Emma Wilson', 'She/her • personal trainer • fitness', True, 'pronoun signal'),
             ]
             
             passed = 0
-            for name, bio, should_pass, desc in test_cases:
-                result = is_female_account(name, name, bio)  # username, full_name, bio
+            for username, full_name, bio, should_pass, desc in test_cases:
+                result, score, details = is_female_account(username, full_name, bio)
                 if result == should_pass:
                     passed += 1
-                    self.log(f"  ✓ {name}: {result} ({desc})", 'PASS')
+                    self.log(f"  ✓ {full_name}: {result} ({desc})", 'PASS')
                 else:
-                    self.log(f"  ✗ {name}: {result} (expected {should_pass})", 'FAIL')
+                    self.log(f"  ✗ {full_name}: {result} (expected {should_pass}) — {desc}", 'FAIL')
             
             self.results['tests']['filters'] = {
                 'test_cases': len(test_cases),
