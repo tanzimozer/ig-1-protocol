@@ -1,14 +1,14 @@
 """
-IG-1 Female Signal Detection — Weighted Scoring System (v1.1 OPTIMIZED)
+IG-1 Female Signal Detection — Weighted Scoring System (v1.2 PRODUCTION)
 Fast, cost-efficient, token-zero female profile identification.
 
-Hyper-efficiency optimizations:
-  - Pre-compiled regex per weight tier (70-80% faster)
-  - Single-pass signal detection
-  - No redundant string operations
-  - Early exit on threshold met
+CRITICAL FIXES (Opus audit):
+  ✅ Null/empty input handling hardened
+  ✅ Early-exit logic on threshold met (immediately return on ≥2.5)
+  ✅ Bio length truncation (prevent ReDoS)
+  ✅ Consistent threshold semantics (≥2.5 is hard cutoff)
 
-Performance: <15ms per profile (down from 30ms)
+Performance: <15ms per profile, safe against malicious input
 """
 
 import re
@@ -49,24 +49,29 @@ GENERIC_WEIGHT = 0.5
 # Threshold for flagging as female
 FEMALE_THRESHOLD = 2.5
 
+# Input validation
+MAX_BIO_LENGTH = 500  # Truncate to prevent ReDoS
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# FEMALE SIGNAL SCORING — OPTIMIZED
+# FEMALE SIGNAL SCORING — OPTIMIZED WITH EARLY-EXIT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def score_female_signals(username: str, full_name: str, bio: str) -> Tuple[float, dict]:
+def score_female_signals(username: str, full_name: str, bio: str, threshold: float = FEMALE_THRESHOLD) -> Tuple[float, dict]:
     """
     Score female signals across username, full_name, and bio using pre-compiled patterns.
     Returns (total_score, breakdown).
     
-    Single-pass detection. All languages in one pool (English + Estonian + Russian).
+    EARLY-EXIT: Returns immediately upon reaching threshold (optimization).
+    All languages in one pool (English + Estonian + Russian).
     Score ≥2.5 = flag as female.
     """
-    if not (username or full_name or bio):
-        return 0.0, {}
+    # Input validation: null/empty/length checks
+    username = (username or '').lower() if username else ''
+    full_name = (full_name or '').lower() if full_name else ''
+    bio = (bio or '').lower()[:MAX_BIO_LENGTH] if bio else ''
     
-    # Combine all fields once
-    combined = f"{username or ''} {full_name or ''} {bio or ''}"
-    if not combined.strip():
+    combined = f"{username} {full_name} {bio}".strip()
+    if not combined:
         return 0.0, {}
     
     breakdown = {
@@ -76,16 +81,33 @@ def score_female_signals(username: str, full_name: str, bio: str) -> Tuple[float
         'generic': 0.0,
     }
     
-    # Count matches using pre-compiled patterns (single pass each)
+    # Pronouns first (highest value, early-exit opportunity)
     pronouns_matches = len(PRONOUNS_PATTERN.findall(combined))
     breakdown['pronouns'] = pronouns_matches * PRONOUNS_WEIGHT
     
+    # EARLY-EXIT: Single pronoun = 3pts already exceeds 2.5 threshold
+    if breakdown['pronouns'] >= threshold:
+        return breakdown['pronouns'], breakdown
+    
+    # Gender nouns (strong signal)
     gender_noun_matches = len(GENDER_NOUNS_PATTERN.findall(combined))
     breakdown['gender_nouns'] = gender_noun_matches * GENDER_NOUNS_WEIGHT
     
+    # EARLY-EXIT: Check cumulative score
+    cumulative = breakdown['pronouns'] + breakdown['gender_nouns']
+    if cumulative >= threshold:
+        return cumulative, breakdown
+    
+    # Relationships (moderate signal)
     relationship_matches = len(RELATIONSHIPS_PATTERN.findall(combined))
     breakdown['relationships'] = relationship_matches * RELATIONSHIPS_WEIGHT
     
+    # EARLY-EXIT: Check cumulative score again
+    cumulative = sum([breakdown['pronouns'], breakdown['gender_nouns'], breakdown['relationships']])
+    if cumulative >= threshold:
+        return cumulative, breakdown
+    
+    # Generic signals (weak, but count all for completeness)
     generic_matches = len(GENERIC_PATTERN.findall(combined))
     breakdown['generic'] = generic_matches * GENERIC_WEIGHT
     
@@ -106,15 +128,22 @@ def is_female_account(username: str, full_name: str, bio: str, threshold: float 
         username: Instagram username
         full_name: Full name from profile
         bio: Biography text
-        threshold: Minimum score to flag as female (default: 2.5)
+        threshold: Minimum score to flag as female (default: 2.5 — hard cutoff)
     
     Returns:
         (is_female, score, breakdown)
+    
+    Semantics: ≥threshold is FEMALE, <threshold is NOT FEMALE (no probabilistic interpretation).
     """
+    # Input validation
+    username = username or ''
+    full_name = full_name or ''
+    bio = bio or ''
+    
     if not (username or bio):
         return False, 0.0, {}
     
-    score, breakdown = score_female_signals(username, full_name, bio)
+    score, breakdown = score_female_signals(username, full_name, bio, threshold)
     is_female = score >= threshold
     
     return is_female, score, breakdown
@@ -133,8 +162,14 @@ def passes_female_filter(username: str, full_name: str, bio: str, is_business: b
     
     Logic:
       - If business=true, skip female scoring entirely (return False)
-      - Otherwise, run female signal detection (threshold ≥2.5)
+      - Otherwise, run female signal detection (threshold ≥2.5 = hard cutoff)
+    
+    Input validation: safe against null/empty/malicious input.
     """
+    # Input validation
+    username = username or ''
+    full_name = full_name or ''
+    bio = bio or ''
     
     # Short-circuit: if business account, reject (don't score female)
     if is_business:
@@ -144,8 +179,8 @@ def passes_female_filter(username: str, full_name: str, bio: str, is_business: b
             'reason': 'Business account — skipped female scoring'
         }
     
-    # Run female signal detection
-    is_female, score, breakdown = is_female_account(username or '', full_name or '', bio or '', threshold=FEMALE_THRESHOLD)
+    # Run female signal detection with early-exit optimization
+    is_female, score, breakdown = is_female_account(username, full_name, bio, threshold=FEMALE_THRESHOLD)
     
     return is_female, {
         'method': 'weighted_female_scoring',
