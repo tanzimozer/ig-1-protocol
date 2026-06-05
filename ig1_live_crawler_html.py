@@ -145,13 +145,24 @@ def main():
     client = gspread.authorize(creds)
     ig1_sheet_id = '1Wo0kl-vcalbflt3sUgjwVNaP3ZbtRfaNmH0NqA0j5mw'
     ig1_sheet = client.open_by_key(ig1_sheet_id)
-    
-    # Get Results tab (cumulative)
+    # Get Results tab (master) + create dated tab
     run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    date_tab = datetime.now().strftime('%b %d').lstrip('0')
+    
     results_ws = ig1_sheet.worksheet('Results')
     
+    try:
+        dated_ws = ig1_sheet.add_worksheet(title=date_tab, rows=500, cols=11)
+    except:
+        dated_ws = ig1_sheet.worksheet(date_tab)
+        dated_ws.clear()
+    
+    headers = ['Username', 'Full Name', 'Followers', 'Female Score', 'Business Score', 'Bio Preview', 'Is Business', 'City', 'Status', 'Crawled At', 'Run ID']
+    dated_ws.append_row(headers)
+    
     print(f"\n🔍 IG-1 LIVE CRAWLER (HTML SCRAPING)")
-    print(f"Run ID: {run_id}\n")
+    print(f"Run ID: {run_id}")
+    print(f"Date Tab: {date_tab}\n")
     
     all_results = []
     seen = set()
@@ -182,8 +193,8 @@ def main():
         print(f"  → {len(city_results)} passed filters\n")
         all_results.extend(city_results)
     
-    # Save to Results sheet
-    print(f"\n📊 Appending {len(all_results)} results to Results tab...")
+    # Save to Results tab (master) and dated tab
+    print(f"\n📊 Appending {len(all_results)} results to Results + {date_tab}...")
     
     for result in all_results:
         bio_preview = result['biography'][:40] if result['biography'] else ''
@@ -198,15 +209,17 @@ def main():
             result['city'],
             'analyzed',
             datetime.now().isoformat(),
-            run_id,  # Run ID
+            run_id,
         ]
         results_ws.append_row(row)
+        dated_ws.append_row(row)
         time.sleep(0.5)
     
     print(f"✓ Complete!")
     print(f"  Total found: {len(seen)}")
     print(f"  Passed filters: {len(all_results)}")
-    print(f"  Tab: Results (cumulative)")
+    print(f"  Master: Results tab")
+    print(f"  Dated: {date_tab}")
     print(f"  Run ID: {run_id}")
 
 if __name__ == '__main__':

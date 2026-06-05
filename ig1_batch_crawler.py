@@ -125,11 +125,27 @@ def main():
     
     print(f"Loaded {len(handles)} handles\n")
     
-    # Get Results tab (cumulative)
+    # Get Results tab (master cumulative) + create dated tab
     run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    date_tab = datetime.now().strftime('%b %d').lstrip('0')  # "Jun 05" format
+    
     results_ws = ig1_sheet.worksheet('Results')
     
-    print(f"🔍 IG-1 BATCH CRAWLER\nRun ID: {run_id}\n")
+    # Create or clear dated tab
+    try:
+        dated_ws = ig1_sheet.add_worksheet(title=date_tab, rows=5000, cols=11)
+    except:
+        dated_ws = ig1_sheet.worksheet(date_tab)
+        dated_ws.clear()
+    
+    # Add headers to dated tab
+    headers = [
+        'Username', 'Full Name', 'Followers', 'Female Score', 'Business Score',
+        'Bio Preview', 'Is Business', 'Source', 'Status', 'Crawled At', 'Run ID'
+    ]
+    dated_ws.append_row(headers)
+    
+    print(f"🔍 IG-1 BATCH CRAWLER\nRun ID: {run_id}\nDate Tab: {date_tab}\n")
     
     results = []
     
@@ -154,8 +170,8 @@ def main():
         
         time.sleep(1)
     
-    # Save to Results sheet
-    print(f"\n📊 Appending {len(results)} results to Results tab...\n")
+    # Save to both Results tab (master) and dated tab
+    print(f"\n📊 Appending {len(results)} results to Results + {date_tab}...\n")
     
     for result in results:
         bio_preview = result['biography'][:40] if result['biography'] else ''
@@ -170,15 +186,17 @@ def main():
             'consolidated',
             'analyzed',
             datetime.now().isoformat(),
-            run_id,  # Run ID to distinguish crawl runs
+            run_id,
         ]
         results_ws.append_row(row)
+        dated_ws.append_row(row)
         time.sleep(0.2)
     
     print(f"✓ Batch crawl complete!")
     print(f"  Processed: 50 handles")
     print(f"  Passed filters: {len(results)}")
-    print(f"  Appended to: Results tab")
+    print(f"  Master: Results tab")
+    print(f"  Dated: {date_tab}")
     print(f"  Run ID: {run_id}")
 
 if __name__ == '__main__':
