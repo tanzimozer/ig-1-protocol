@@ -146,21 +146,12 @@ def main():
     ig1_sheet_id = '1Wo0kl-vcalbflt3sUgjwVNaP3ZbtRfaNmH0NqA0j5mw'
     ig1_sheet = client.open_by_key(ig1_sheet_id)
     
-    # Create new tab
+    # Get Results tab (cumulative)
     run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
-    tab_name = f'Crawl-{run_id}'
+    results_ws = ig1_sheet.worksheet('Results')
     
-    try:
-        ws = ig1_sheet.add_worksheet(title=tab_name, rows=500, cols=10)
-    except:
-        ws = ig1_sheet.worksheet(tab_name)
-        ws.clear()
-    
-    headers = ['Username', 'Full Name', 'Followers', 'Female Score', 'Business Score', 'Bio Preview', 'Is Business', 'City', 'Status', 'Crawled At']
-    ws.append_row(headers)
-    
-    print(f"\n🔍 IG-1 LIVE CRAWLER (HTML SCRAPING)\n")
-    print(f"Tab: {tab_name}\n")
+    print(f"\n🔍 IG-1 LIVE CRAWLER (HTML SCRAPING)")
+    print(f"Run ID: {run_id}\n")
     
     all_results = []
     seen = set()
@@ -191,8 +182,8 @@ def main():
         print(f"  → {len(city_results)} passed filters\n")
         all_results.extend(city_results)
     
-    # Save to sheet
-    print(f"\n📊 Saving {len(all_results)} results to Google Sheet...")
+    # Save to Results sheet
+    print(f"\n📊 Appending {len(all_results)} results to Results tab...")
     
     for result in all_results:
         bio_preview = result['biography'][:40] if result['biography'] else ''
@@ -205,16 +196,18 @@ def main():
             bio_preview,
             'Yes' if result['is_business'] else 'No',
             result['city'],
-            'crawled',
+            'analyzed',
             datetime.now().isoformat(),
+            run_id,  # Run ID
         ]
-        ws.append_row(row)
+        results_ws.append_row(row)
         time.sleep(0.5)
     
     print(f"✓ Complete!")
     print(f"  Total found: {len(seen)}")
     print(f"  Passed filters: {len(all_results)}")
-    print(f"  Tab: {tab_name}")
+    print(f"  Tab: Results (cumulative)")
+    print(f"  Run ID: {run_id}")
 
 if __name__ == '__main__':
     main()

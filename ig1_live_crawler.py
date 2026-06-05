@@ -197,21 +197,11 @@ def main():
     ig1_sheet_id = '1Wo0kl-vcalbflt3sUgjwVNaP3ZbtRfaNmH0NqA0j5mw'
     ig1_sheet = client.open_by_key(ig1_sheet_id)
     
-    # Create new tab for this run
+    # Get Results tab (cumulative)
     run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
-    tab_name = f'Crawl-{run_id}'
-    
-    try:
-        ws = ig1_sheet.add_worksheet(title=tab_name, rows=1000, cols=10)
-    except:
-        ws = ig1_sheet.worksheet(tab_name)
-    
-    # Headers
-    headers = ['Username', 'Full Name', 'Followers', 'Female Score', 'Business Score', 'Bio Preview', 'Is Business', 'Follower Velocity', 'Signal Strength', 'Crawled At']
-    ws.append_row(headers)
+    results_ws = ig1_sheet.worksheet('Results')
     
     print(f"\n🔍 IG-1 LIVE CRAWLER — Running crawl {run_id}\n")
-    print(f"Creating new tab: {tab_name}\n")
     
     all_results = []
     seen_usernames = set()
@@ -257,8 +247,8 @@ def main():
         print(f"  → {len(enriched)} passed filters\n")
         all_results.extend(enriched)
     
-    # Save to sheet
-    print(f"\n📊 Saving {len(all_results)} results to Google Sheet...\n")
+    # Save to Results sheet
+    print(f"\n📊 Appending {len(all_results)} results to Results tab...\n")
     
     for result in all_results:
         bio_preview = result['biography'][:50] if result['biography'] else ''
@@ -270,17 +260,18 @@ def main():
             round(result['business_score'], 2),
             bio_preview,
             'Yes' if result['is_business'] else 'No',
-            'N/A',  # Follower velocity (not in live data)
+            'N/A',  # Follower velocity
             'N/A',  # Signal strength
             datetime.now().isoformat(),
+            run_id,  # Run ID
         ]
-        ws.append_row(row)
+        results_ws.append_row(row)
     
     print(f"✓ Crawl complete!")
     print(f"  Total discovered: {len(seen_usernames)}")
     print(f"  Passed filters: {len(all_results)}")
-    print(f"  Tab created: {tab_name}")
-    print(f"  Sheet: IG-1 Protocol Results")
+    print(f"  Tab: Results (cumulative)")
+    print(f"  Run ID: {run_id}")
 
 if __name__ == '__main__':
     main()
