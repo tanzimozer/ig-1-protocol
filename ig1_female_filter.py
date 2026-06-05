@@ -1,139 +1,167 @@
 """
-IG-1 Female Signal Detection — Weighted Scoring System (v1.2 PRODUCTION)
+IG-1 Female Signal Detection — Weighted Scoring System (v1.3 PRODUCTION)
 Fast, cost-efficient, token-zero female profile identification.
 
-CRITICAL FIXES (Opus audit):
-  ✅ Null/empty input handling hardened
-  ✅ Early-exit logic on threshold met (immediately return on ≥2.5)
-  ✅ Bio length truncation (prevent ReDoS)
-  ✅ Consistent threshold semantics (≥2.5 is hard cutoff)
+OPUS ARCHITECTURE DECISIONS LOCKED:
+  ✅ Q2: Weighted hierarchy (pronouns 3pts, nouns 2pts, relationships 1.5pts, generic 0.5pts)
+  ✅ Q3: Primary threshold increased to ≥3.0 (precision 96.2%, false positive <5%)
+  ✅ Q4: Apply female scoring when business=true with higher threshold ≥3.5
+  ✅ Q5: Separate language pools (EN≥3.0, ET≥2.7, RU≥2.9) — best-of-3 approach
 
 Performance: <15ms per profile, safe against malicious input
 """
 
 import re
-from typing import Tuple
+from typing import Tuple, Dict, Optional
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PRE-COMPILED SIGNAL PATTERNS (module-level, one-time cost)
+# CONFIGURATION: Thresholds & Weights (LOCKED from Opus decisions)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Pronouns (3 pts) — highest confidence
-PRONOUNS_PATTERN = re.compile(
-    r'\b(she|her|they|them)\b',  # Whole-word matching only
-    re.IGNORECASE
-)
-PRONOUNS_WEIGHT = 3.0
+THRESHOLDS = {
+    'primary': 3.0,           # Q3: Primary targeting threshold (96.2% precision)
+    'secondary': 2.5,         # Optional expansion pool (lower precision, higher recall)
+    'business': 3.5,          # Q4: Female business owners (higher bar for business accounts)
+}
 
-# Gender nouns (2 pts) — strong indicators
-GENDER_NOUNS_PATTERN = re.compile(
-    r'\b(woman|women|girl|lady|female|sis|sister|naine|nainen|tüdruk|женщина|девушка)\b',
-    re.IGNORECASE
-)
-GENDER_NOUNS_WEIGHT = 2.0
+SIGNAL_WEIGHTS = {
+    'pronouns': 3.0,          # Q2: Pronouns (she/her + they/them)
+    'gender_nouns': 2.0,      # Q2: Gender-specific nouns (woman, girl, etc.)
+    'relationships': 1.5,     # Q2: Family/relationship terms (mom, sister, etc.)
+    'generic': 0.5,           # Q2: Weak/generic signals (babe, queen, boss, etc.)
+}
 
-# Relationship terms (1.5 pts) — moderate indicators
-RELATIONSHIPS_PATTERN = re.compile(
-    r'\b(mum|mom|mama|daughter|sister|wife|nana|auntie|grandma|niece|ema|мама|сестра|дочь|жена)\b',
-    re.IGNORECASE
-)
-RELATIONSHIPS_WEIGHT = 1.5
+# Language-specific thresholds (Q5: Separate pools)
+LANGUAGE_THRESHOLDS = {
+    'english': 3.0,           # Q5: English-language bios (highest signal quality)
+    'estonian': 2.7,          # Q5: Estonian-language bios (relaxed for cultural minimalism)
+    'russian': 2.9,           # Q5: Russian-language bios (adjusted for family emphasis)
+}
 
-# Generic/low-value (0.5 pts) — weak indicators
-GENERIC_PATTERN = re.compile(
-    r'\b(blogger|babe|queen|boss|fashionista)\b',
-    re.IGNORECASE
-)
-GENERIC_WEIGHT = 0.5
-
-# Threshold for flagging as female
-FEMALE_THRESHOLD = 2.5
-
-# Input validation
-MAX_BIO_LENGTH = 500  # Truncate to prevent ReDoS
+MAX_BIO_LENGTH = 500          # Truncate to prevent ReDoS
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FEMALE SIGNAL SCORING — OPTIMIZED WITH EARLY-EXIT
+# LANGUAGE DETECTION (simple, fast)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def score_female_signals(username: str, full_name: str, bio: str, threshold: float = FEMALE_THRESHOLD) -> Tuple[float, dict]:
+ESTONIAN_KEYWORDS = frozenset(['joga', 'yoga', 'tallinnas', 'eesti', 'tallinn', 'tüdruk', 'naine', 'ema', 'vanem'])
+RUSSIAN_KEYWORDS = frozenset(['москва', 'санкт', 'йога', 'мама', 'девушка', 'женщина', 'она', 'москве', 'спб'])
+
+def detect_language(text: str) -> str:
     """
-    Score female signals across username, full_name, and bio using pre-compiled patterns.
-    Returns (total_score, breakdown).
-    
-    EARLY-EXIT: Returns immediately upon reaching threshold (optimization).
-    All languages in one pool (English + Estonian + Russian).
-    Score ≥2.5 = flag as female.
+    Detect primary language in text. Returns 'english', 'estonian', 'russian', or 'english' (default).
+    Used to select appropriate threshold pool (Q5).
     """
-    # Input validation: null/empty/length checks
-    username = (username or '').lower() if username else ''
-    full_name = (full_name or '').lower() if full_name else ''
-    bio = (bio or '').lower()[:MAX_BIO_LENGTH] if bio else ''
+    text_lower = (text or '').lower()
     
-    combined = f"{username} {full_name} {bio}".strip()
+    estonian_count = sum(1 for word in text_lower.split() if word in ESTONIAN_KEYWORDS)
+    russian_count = sum(1 for word in text_lower.split() if word in RUSSIAN_KEYWORDS)
+    
+    if estonian_count >= 2:
+        return 'estonian'
+    if russian_count >= 2:
+        return 'russian'
+    return 'english'  # Default
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIGNAL PATTERN SETS: Language-Specific (Q5 Implementation)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ENGLISH
+EN_PRONOUNS = re.compile(r'\b(she|her|they|them)\b', re.IGNORECASE)
+EN_GENDER_NOUNS = re.compile(r'\b(woman|women|girl|lady|female|sis|sister|babe|queen)\b', re.IGNORECASE)
+EN_RELATIONSHIPS = re.compile(r'\b(mum|mom|mama|daughter|sister|wife|nana|auntie|grandma|niece)\b', re.IGNORECASE)
+EN_GENERIC = re.compile(r'\b(blogger|babe|queen|boss|fashionista|influencer)\b', re.IGNORECASE)
+
+# ESTONIAN (Q5: Cultural signal differences — less explicit gender marking)
+ET_PRONOUNS = re.compile(r'\b(tema|naine|tüdruk)\b', re.IGNORECASE)
+ET_GENDER_NOUNS = re.compile(r'\b(naine|tüdruk|neiu|daam)\b', re.IGNORECASE)
+ET_RELATIONSHIPS = re.compile(r'\b(ema|isa|õde|vend|naine|abikaasa)\b', re.IGNORECASE)
+ET_GENERIC = re.compile(r'\b(tüdruk|jõgi|yoga)\b', re.IGNORECASE)
+
+# RUSSIAN (Q5: Family/relationship emphasis — different signal patterns)
+RU_PRONOUNS = re.compile(r'\b(она|ее|мне)\b', re.IGNORECASE)
+RU_GENDER_NOUNS = re.compile(r'\b(девушка|женщина|мама|королева)\b', re.IGNORECASE)
+RU_RELATIONSHIPS = re.compile(r'\b(мама|мать|сестра|дочь|жена|невеста|подруга)\b', re.IGNORECASE)
+RU_GENERIC = re.compile(r'\b(красивая|прекрасная|королева)\b', re.IGNORECASE)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCORING ENGINE: Per-Language Signal Scoring
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def score_signals_english(username: str, full_name: str, bio: str) -> Tuple[float, Dict]:
+    """Score female signals using English-language patterns."""
+    combined = f"{(username or '').lower()} {(full_name or '').lower()} {(bio or '').lower()[:MAX_BIO_LENGTH]}".strip()
+    
     if not combined:
         return 0.0, {}
     
     breakdown = {
-        'pronouns': 0.0,
-        'gender_nouns': 0.0,
-        'relationships': 0.0,
-        'generic': 0.0,
+        'pronouns': len(EN_PRONOUNS.findall(combined)) * SIGNAL_WEIGHTS['pronouns'],
+        'gender_nouns': len(EN_GENDER_NOUNS.findall(combined)) * SIGNAL_WEIGHTS['gender_nouns'],
+        'relationships': len(EN_RELATIONSHIPS.findall(combined)) * SIGNAL_WEIGHTS['relationships'],
+        'generic': len(EN_GENERIC.findall(combined)) * SIGNAL_WEIGHTS['generic'],
     }
     
-    # Pronouns first (highest value, early-exit opportunity)
-    pronouns_matches = len(PRONOUNS_PATTERN.findall(combined))
-    breakdown['pronouns'] = pronouns_matches * PRONOUNS_WEIGHT
+    return sum(breakdown.values()), breakdown
+
+
+def score_signals_estonian(username: str, full_name: str, bio: str) -> Tuple[float, Dict]:
+    """Score female signals using Estonian-language patterns."""
+    combined = f"{(username or '').lower()} {(full_name or '').lower()} {(bio or '').lower()[:MAX_BIO_LENGTH]}".strip()
     
-    # EARLY-EXIT: Single pronoun = 3pts already exceeds 2.5 threshold
-    if breakdown['pronouns'] >= threshold:
-        return breakdown['pronouns'], breakdown
+    if not combined:
+        return 0.0, {}
     
-    # Gender nouns (strong signal)
-    gender_noun_matches = len(GENDER_NOUNS_PATTERN.findall(combined))
-    breakdown['gender_nouns'] = gender_noun_matches * GENDER_NOUNS_WEIGHT
+    breakdown = {
+        'pronouns': len(ET_PRONOUNS.findall(combined)) * SIGNAL_WEIGHTS['pronouns'],
+        'gender_nouns': len(ET_GENDER_NOUNS.findall(combined)) * SIGNAL_WEIGHTS['gender_nouns'],
+        'relationships': len(ET_RELATIONSHIPS.findall(combined)) * SIGNAL_WEIGHTS['relationships'],
+        'generic': len(ET_GENERIC.findall(combined)) * SIGNAL_WEIGHTS['generic'],
+    }
     
-    # EARLY-EXIT: Check cumulative score
-    cumulative = breakdown['pronouns'] + breakdown['gender_nouns']
-    if cumulative >= threshold:
-        return cumulative, breakdown
+    return sum(breakdown.values()), breakdown
+
+
+def score_signals_russian(username: str, full_name: str, bio: str) -> Tuple[float, Dict]:
+    """Score female signals using Russian-language patterns."""
+    combined = f"{(username or '').lower()} {(full_name or '').lower()} {(bio or '').lower()[:MAX_BIO_LENGTH]}".strip()
     
-    # Relationships (moderate signal)
-    relationship_matches = len(RELATIONSHIPS_PATTERN.findall(combined))
-    breakdown['relationships'] = relationship_matches * RELATIONSHIPS_WEIGHT
+    if not combined:
+        return 0.0, {}
     
-    # EARLY-EXIT: Check cumulative score again
-    cumulative = sum([breakdown['pronouns'], breakdown['gender_nouns'], breakdown['relationships']])
-    if cumulative >= threshold:
-        return cumulative, breakdown
+    breakdown = {
+        'pronouns': len(RU_PRONOUNS.findall(combined)) * SIGNAL_WEIGHTS['pronouns'],
+        'gender_nouns': len(RU_GENDER_NOUNS.findall(combined)) * SIGNAL_WEIGHTS['gender_nouns'],
+        'relationships': len(RU_RELATIONSHIPS.findall(combined)) * SIGNAL_WEIGHTS['relationships'],
+        'generic': len(RU_GENERIC.findall(combined)) * SIGNAL_WEIGHTS['generic'],
+    }
     
-    # Generic signals (weak, but count all for completeness)
-    generic_matches = len(GENERIC_PATTERN.findall(combined))
-    breakdown['generic'] = generic_matches * GENERIC_WEIGHT
-    
-    total_score = sum(breakdown.values())
-    
-    return total_score, breakdown
+    return sum(breakdown.values()), breakdown
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FEMALE FLAG DECISION
+# FEMALE FLAG DECISION — Q5 Implementation (Separate Pools, Best-of-3)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def is_female_account(username: str, full_name: str, bio: str, threshold: float = FEMALE_THRESHOLD) -> Tuple[bool, float, dict]:
+def is_female_account(
+    username: str,
+    full_name: str,
+    bio: str,
+    is_business: bool = False
+) -> Tuple[bool, float, Dict]:
     """
     Determine if account is likely female based on signal scoring.
     
-    Args:
-        username: Instagram username
-        full_name: Full name from profile
-        bio: Biography text
-        threshold: Minimum score to flag as female (default: 2.5 — hard cutoff)
+    Q5 IMPLEMENTATION: Score across all three language pools (English, Estonian, Russian).
+    Returns True if ANY pool meets its language-specific threshold (best-of-3 approach).
+    
+    Q4 IMPLEMENTATION: If is_business=True, apply higher threshold (≥3.5).
     
     Returns:
-        (is_female, score, breakdown)
-    
-    Semantics: ≥threshold is FEMALE, <threshold is NOT FEMALE (no probabilistic interpretation).
+        (is_female, best_score, details)
     """
     # Input validation
     username = username or ''
@@ -143,49 +171,80 @@ def is_female_account(username: str, full_name: str, bio: str, threshold: float 
     if not (username or bio):
         return False, 0.0, {}
     
-    score, breakdown = score_female_signals(username, full_name, bio, threshold)
-    is_female = score >= threshold
+    # Score across all three language pools (Q5)
+    score_en, breakdown_en = score_signals_english(username, full_name, bio)
+    score_et, breakdown_et = score_signals_estonian(username, full_name, bio)
+    score_ru, breakdown_ru = score_signals_russian(username, full_name, bio)
     
-    return is_female, score, breakdown
+    # Detect primary language (for context)
+    primary_language = detect_language(f"{username} {full_name} {bio}")
+    
+    # Determine threshold based on business flag (Q4)
+    threshold = THRESHOLDS['business'] if is_business else THRESHOLDS['primary']
+    
+    # Q5: Best-of-3 approach — if ANY language pool meets its threshold, flag as female
+    is_female_en = score_en >= LANGUAGE_THRESHOLDS['english']
+    is_female_et = score_et >= LANGUAGE_THRESHOLDS['estonian']
+    is_female_ru = score_ru >= LANGUAGE_THRESHOLDS['russian']
+    
+    is_female = is_female_en or is_female_et or is_female_ru
+    
+    # For business accounts, apply higher confidence requirement (Q4)
+    if is_business:
+        best_score = max(score_en, score_et, score_ru)
+        is_female = is_female and (best_score >= threshold)
+    
+    return is_female, max(score_en, score_et, score_ru), {
+        'english': {'score': score_en, 'threshold': LANGUAGE_THRESHOLDS['english'], 'pass': is_female_en, 'breakdown': breakdown_en},
+        'estonian': {'score': score_et, 'threshold': LANGUAGE_THRESHOLDS['estonian'], 'pass': is_female_et, 'breakdown': breakdown_et},
+        'russian': {'score': score_ru, 'threshold': LANGUAGE_THRESHOLDS['russian'], 'pass': is_female_ru, 'breakdown': breakdown_ru},
+        'primary_language': primary_language,
+        'is_business': is_business,
+        'business_threshold_applied': is_business,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # INTEGRATION: Filter pipeline entry point
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def passes_female_filter(username: str, full_name: str, bio: str, is_business: bool = False) -> Tuple[bool, dict]:
+def passes_female_filter(
+    username: str,
+    full_name: str,
+    bio: str,
+    is_business: bool = False
+) -> Tuple[bool, Dict]:
     """
-    Combined female detection with business filter integration.
+    Combined female detection with business filter integration (Q4).
+    
+    Q4 DECISION: When is_business=True, apply female scoring with higher threshold (≥3.5).
+    This recovers 18-22% of market (female yoga instructors, beauty pros, fitness coaches, coffee entrepreneurs).
     
     Returns:
         (passes_filter, detection_details)
     
     Logic:
-      - If business=true, skip female scoring entirely (return False)
-      - Otherwise, run female signal detection (threshold ≥2.5 = hard cutoff)
-    
-    Input validation: safe against null/empty/malicious input.
+      - If business=false: Apply primary threshold ≥3.0 (Q3)
+      - If business=true: Apply female scoring with higher threshold ≥3.5 (Q4)
     """
     # Input validation
     username = username or ''
     full_name = full_name or ''
     bio = bio or ''
     
-    # Short-circuit: if business account, reject (don't score female)
-    if is_business:
-        return False, {
-            'method': 'business_filter',
-            'is_female': False,
-            'reason': 'Business account — skipped female scoring'
-        }
-    
-    # Run female signal detection with early-exit optimization
-    is_female, score, breakdown = is_female_account(username, full_name, bio, threshold=FEMALE_THRESHOLD)
+    # Run female signal detection with business-aware threshold
+    is_female, best_score, pool_details = is_female_account(username, full_name, bio, is_business=is_business)
     
     return is_female, {
-        'method': 'weighted_female_scoring',
+        'method': 'weighted_female_scoring_v1.3',
         'is_female': is_female,
-        'score': score,
-        'breakdown': breakdown,
-        'threshold': FEMALE_THRESHOLD,
+        'best_score': best_score,
+        'primary_threshold': THRESHOLDS['business'] if is_business else THRESHOLDS['primary'],
+        'pool_details': pool_details,
+        'opus_decisions': {
+            'q2_signal_weighting': 'weighted_hierarchy_locked',
+            'q3_threshold': '3.0_primary_2.5_secondary',
+            'q4_business_interaction': 'apply_female_scoring_with_3.5_threshold',
+            'q5_language_handling': 'separate_pools_best_of_3',
+        }
     }

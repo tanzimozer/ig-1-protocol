@@ -197,7 +197,14 @@ def enrich_user(username, retries=3):
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 def passes_filter(u):
-    """Combined filter: follower range + privacy + business + female (OPTIMIZED)."""
+    """
+    Combined filter: follower range + privacy + business + female (Q4 IMPLEMENTATION).
+    
+    Q4 LOCKED DECISION:
+    - Do NOT auto-reject business accounts
+    - Female filter applies HIGHER threshold (≥3.5) to business accounts
+    - Recovers 18-22% of target market (female entrepreneurs: yoga instructors, beauty pros, etc.)
+    """
     if not u:
         return False
     if u.get('is_private'):
@@ -212,13 +219,16 @@ def passes_filter(u):
     bio = u.get('biography', '')
     is_biz_flag = u.get('is_business_account', False)
     
-    # Business filter
-    passes_biz_filter, _ = passes_business_filter(username, full_name, bio, is_biz_flag)
-    if not passes_biz_filter:
-        return False
+    # Business filter (Q4: Check if it's flagged as business)
+    passes_biz_filter, biz_details = passes_business_filter(username, full_name, bio, is_biz_flag)
+    is_business = not passes_biz_filter  # True if account is business (fails business filter)
     
-    # Female filter (business filter result passed directly)
-    is_female, _ = passes_female_filter(username, full_name, bio, is_biz_flag)
+    # Q4 IMPLEMENTATION: Do NOT auto-reject business accounts
+    # Female filter will apply higher threshold (≥3.5) when is_business=True
+    # This recovers female entrepreneurs (yoga instructors, beauty pros, fitness coaches)
+    
+    # Female filter (pass is_business flag to apply higher threshold if needed)
+    is_female, _ = passes_female_filter(username, full_name, bio, is_business=is_business)
     if not is_female:
         return False
     
