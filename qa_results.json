@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-06-05T15:00:08.540425",
+  "checks": {
+    "syntax": {
+      "files_checked": 15,
+      "errors": [],
+      "status": "PASS"
+    },
+    "imports": {
+      "modules_required": 10,
+      "missing": [
+        "beautifulsoup4"
+      ],
+      "status": "FAIL"
+    },
+    "configs": {
+      "files_required": 3,
+      "missing": [],
+      "status": "PASS"
+    },
+    "quality": {
+      "long_functions": 1,
+      "missing_docstrings": 7,
+      "status": "PASS"
+    }
+  },
+  "tests": {
+    "filters": {
+      "status": "ERROR",
+      "error": "cannot import name 'calc_female_score' from 'ig1_female_filter' (/home/hermes/.hermes/ig-1-protocol-repo/ig1_female_filter.py)"
+    },
+    "sheets": {
+      "sheet_id": "1Wo0kl-vcalbflt3sUgjwVNaP3ZbtRfaNmH0NqA0j5mw",
+      "columns": 11,
+      "status": "PASS"
+    }
+  },
+  "status": "PARTIAL",
+  "deployment": {
+    "github": "SUCCESS"
+  }
+}

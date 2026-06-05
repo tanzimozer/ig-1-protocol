@@ -57,7 +57,7 @@ class QAValidator:
         
         required_modules = [
             'requests', 'gspread', 'google.oauth2', 'google.auth',
-            'beautifulsoup4', 'pathlib', 'json', 're', 'time', 'datetime'
+            'pathlib', 'json', 're', 'time', 'datetime'
         ]
         
         missing = []
@@ -149,22 +149,22 @@ class QAValidator:
         self.log("TEST 1: Filter regex validation...")
         
         try:
-            from ig1_female_filter import calc_female_score
+            from ig1_female_filter import is_female_account
             
             test_cases = [
-                ('Sofia Fernandez', 'Yoga instructor, coffee lover', 5.0, 'high'),
-                ('John Smith', 'Tech bro, startup guy', 0.0, 'low'),
-                ('Emma Wilson', 'She/her, fitness coach', 6.0, 'high'),
+                ('Sofia Fernandez', 'Yoga instructor, coffee lover', True, 'high'),
+                ('John Smith', 'Tech bro, startup guy', False, 'low'),
+                ('Emma Wilson', 'She/her, fitness coach', True, 'high'),
             ]
             
             passed = 0
-            for name, bio, min_score, desc in test_cases:
-                score = calc_female_score(name, bio)
-                if score >= min_score:
+            for name, bio, should_pass, desc in test_cases:
+                result = is_female_account(name, name, bio)  # username, full_name, bio
+                if result == should_pass:
                     passed += 1
-                    self.log(f"  ✓ {name}: score {score:.1f} ({desc})", 'PASS')
+                    self.log(f"  ✓ {name}: {result} ({desc})", 'PASS')
                 else:
-                    self.log(f"  ✗ {name}: score {score:.1f} (expected ≥{min_score})", 'FAIL')
+                    self.log(f"  ✗ {name}: {result} (expected {should_pass})", 'FAIL')
             
             self.results['tests']['filters'] = {
                 'test_cases': len(test_cases),
